@@ -226,6 +226,9 @@ func (r *Request) parseParams() (err os.Error) {
                     r.Params[name] = newlst
                 }
             }
+	case "application/json":
+	    // leave body alone
+	    return
         default:
             return &badStringError{"unknown Content-Type", ct}
         }
