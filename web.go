@@ -171,19 +171,20 @@ type route struct {
     r       string
     cr      *regexp.Regexp
     method  string
+    ct	    string
     handler *reflect.FuncValue
 }
 
 var routes vector.Vector
 
-func addRoute(r string, method string, handler interface{}) {
+func addRoute(r string, method string, ct string, handler interface{}) {
     cr, err := regexp.Compile(r)
     if err != nil {
         log.Stderrf("Error in route regex %q\n", r)
         return
     }
     fv := reflect.NewValue(handler).(*reflect.FuncValue)
-    routes.Push(route{r, cr, method, fv})
+    routes.Push(route{r, cr, method, ct, fv})
 }
 
 type httpConn struct {
@@ -262,6 +263,12 @@ func routeHandler(req *Request, c conn) {
         return
     }
 
+    ct, ctIsSet := req.Headers["Content-Type"]
+    if ctIsSet {
+      // the client specified a Content-Type header
+      log.Stderrf("Content-Type: %s", ct)
+    } else { log.Stderr("No Content-Type. Assuming 'text/plain'")}
+
     for i := 0; i < routes.Len(); i++ {
         route := routes.At(i).(route)
         cr := route.cr
@@ -278,6 +285,12 @@ func routeHandler(req *Request, c conn) {
         if len(match[0]) != len(requestPath) {
             continue
         }
+
+	if ctIsSet {
+	  if route.ct == ct {
+	    log.Stdoutf("Found handler %s for Content-Type: %s", cr, ct)
+	  } else { continue }
+	}
 
         var args vector.Vector
 
@@ -359,17 +372,23 @@ func RunFcgi(addr string) {
 }
 
 //Adds a handler for the 'GET' http method.
-func Get(route string, handler interface{}) { addRoute(route, "GET", handler) }
+func Get(route string, handler interface{}) { addRoute(route, "GET", "text/plain", handler) }
+//Adds a handler for the 'GET' http method with Content-Type.
+func GetAs(route string, contentType string, handler interface{}) { addRoute(route, "GET", contentType, handler) }
 
 //Adds a handler for the 'POST' http method.
-func Post(route string, handler interface{}) { addRoute(route, "POST", handler) }
+func Post(route string, handler interface{}) { addRoute(route, "POST", "text/plain", handler) }
+//Adds a handler for the 'POST' http method with Content-Type.
+func PostAs(route string, contentType string, handler interface{}) {
+  addRoute(route, "POST", contentType, handler)
+}
 
 //Adds a handler for the 'PUT' http method.
-func Put(route string, handler interface{}) { addRoute(route, "PUT", handler) }
+func Put(route string, handler interface{}) { addRoute(route, "PUT", "text/plain", handler) }
 
 //Adds a handler for the 'DELETE' http method.
 func Delete(route string, handler interface{}) {
-    addRoute(route, "DELETE", handler)
+    addRoute(route, "DELETE", "text/plain", handler)
 }
 
 func webTime(t *time.Time) string {
