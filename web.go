@@ -225,6 +225,53 @@ func httpHandler(c *http.Conn, req *http.Request) {
     routeHandler(wreq, &conn)
 }
 
+type acceptType struct {
+  mimeType string
+  quality  float
+}
+
+func parseAcceptHeader(acc string) []acceptType {
+  // acc is for example (Safari):
+  // application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,image/png,*/*;q=0.5
+  elements := strings.Split(acc, ",", -1)
+  result := make([]acceptType, len(elements))
+  for i,element := range elements {
+     sp := strings.Split(element, ";", -1)
+     result[i] = acceptType{mimeType:sp[0], quality:1.0}
+     if len(sp) > 1 {
+      quality, err :=  strconv.Atof(sp[1])
+      if nil == err {
+	result[i].quality = quality
+      }
+    }
+  }
+  return result
+}
+
+func selectRoutes(req *Request) vector.Vector {
+  var result vector.Vector
+  acceptHeader, ok := req.Headers["Accept"]
+  if ok {
+   acceptedTypes := parseAcceptHeader(acceptHeader)
+   for _, at := range acceptedTypes {
+    for i := 0; i< routes.Len(); i++ {
+      route := routes.At(i).(route)
+      if route.ct == at.mimeType || at.mimeType == "*/*" {
+	if route.cr.MatchString(req.URL.Path) {
+	  fmt.Printf("Selecting route: %v\n", route)
+	  result.Push(route)
+	}
+      }
+    }
+    // If we found at least one route we're done
+    if result.Len() > 0 {
+      break
+    }
+   }
+  }
+  return result
+}
+
 func routeHandler(req *Request, c conn) {
     requestPath := req.URL.Path
 
@@ -263,35 +310,46 @@ func routeHandler(req *Request, c conn) {
         return
     }
 
-    ct, ctIsSet := req.Headers["Content-Type"]
+    ct, ctIsSet := req.Headers["Accept"]
     if ctIsSet {
       // the client specified a Content-Type header
-      log.Stderrf("Content-Type: %s", ct)
-    } else { log.Stderr("No Content-Type. Assuming 'text/plain'")}
+      log.Stderrf("Accept: %s", ct)
+    } else { log.Stderr("No Accept-Header. Assuming 'text/plain'")}
 
-    for i := 0; i < routes.Len(); i++ {
-        route := routes.At(i).(route)
+    prefilterdRoutes := selectRoutes(req)
+    fmt.Printf("%n routes were preselected\n", prefilterdRoutes.Len())
+
+    for i := 0; i < prefilterdRoutes.Len(); i++ {
+        route := prefilterdRoutes.At(i).(route)
         cr := route.cr
         //if the methods don't match, skip this handler (except HEAD can be used in place of GET)
         if req.Method != route.method && !(req.Method == "HEAD" && route.method == "GET") {
             continue
         }
+	fmt.Printf("Route %v matches request method %v\n", route,
+	req.Method)
 
+	fmt.Printf("Route %v matches request path %v\n", route,
+	requestPath)
         if !cr.MatchString(requestPath) {
             continue
         }
+	fmt.Printf("Route %v matches request path %v\n", route,
+	requestPath)
+
         match := cr.MatchStrings(requestPath)
 
         if len(match[0]) != len(requestPath) {
             continue
         }
-
+	fmt.Printf("Executing route %v", route)
+/*
 	if ctIsSet {
 	  if route.ct == ct {
 	    log.Stdoutf("Found handler %s for Content-Type: %s", cr, ct)
 	  } else { continue }
 	}
-
+*/
         var args vector.Vector
 
         handlerType := route.handler.Type().(*reflect.FuncType)
